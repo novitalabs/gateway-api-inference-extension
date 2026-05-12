@@ -112,19 +112,19 @@ func (ext *Extractor) Extract(ctx context.Context, data any, ep fwkdl.Endpoint) 
 	updated := false
 
 	if spec := mapping.TotalQueuedRequests; spec != nil { // extract queued requests
-		if metric, err := spec.getLatestMetric(families); err != nil {
+		if total, err := spec.sumMetrics(families); err != nil {
 			errs = append(errs, err)
 		} else {
-			clone.WaitingQueueSize = int(extractValue(metric))
+			clone.WaitingQueueSize = int(total)
 			updated = true
 		}
 	}
 
 	if spec := mapping.TotalRunningRequests; spec != nil { // extract running requests
-		if metric, err := spec.getLatestMetric(families); err != nil {
+		if total, err := spec.sumMetrics(families); err != nil {
 			errs = append(errs, err)
 		} else {
-			clone.RunningRequestsSize = int(extractValue(metric))
+			clone.RunningRequestsSize = int(total)
 			updated = true
 		}
 	}

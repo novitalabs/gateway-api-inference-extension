@@ -125,6 +125,32 @@ func (spec *Spec) getLatestMetric(families sourcemetrics.PrometheusMetricMap) (*
 	return latest, nil
 }
 
+// sumMetrics returns the sum of all series in the family whose labels match spec.Labels.
+// Used for metrics like running/waiting requests that vLLM emits per-engine — a single
+// pod can expose multiple series.
+// Keep in sync with backend/metrics/metrics.go: (*PodMetricsClientImpl).sumMetric.
+func (spec *Spec) sumMetrics(families sourcemetrics.PrometheusMetricMap) (float64, error) {
+	family, err := extractFamily(spec, families)
+	if err != nil {
+		return 0, err
+	}
+
+	var sum float64
+	matched := false
+	for _, metric := range family.GetMetric() {
+		if spec.labelsMatch(metric.GetLabel()) {
+			sum += extractValue(metric)
+			matched = true
+		}
+	}
+
+	if !matched {
+		return 0, fmt.Errorf("no matching metric found for %q with labels %v", spec.Name, spec.Labels)
+	}
+
+	return sum, nil
+}
+
 // labelsMatch checks if metric labels match the specification labels.
 func (spec *Spec) labelsMatch(metricLabels []*dto.LabelPair) bool {
 	if len(spec.Labels) == 0 {
