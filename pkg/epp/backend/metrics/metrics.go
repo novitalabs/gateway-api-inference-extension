@@ -151,18 +151,18 @@ func (p *PodMetricsClientImpl) promToPodMetrics(
 	updated := existing.Clone()
 
 	if p.MetricMapping.TotalQueuedRequests != nil {
-		queued, err := p.getMetric(metricFamilies, *p.MetricMapping.TotalQueuedRequests)
+		queued, err := p.sumMetric(metricFamilies, *p.MetricMapping.TotalQueuedRequests)
 		if err == nil {
-			updated.WaitingQueueSize = int(queued.GetGauge().GetValue())
+			updated.WaitingQueueSize = int(queued)
 		} else {
 			errs = multierr.Append(errs, err)
 		}
 	}
 
 	if p.MetricMapping.TotalRunningRequests != nil {
-		running, err := p.getMetric(metricFamilies, *p.MetricMapping.TotalRunningRequests)
+		running, err := p.sumMetric(metricFamilies, *p.MetricMapping.TotalRunningRequests)
 		if err == nil {
-			updated.RunningRequestsSize = int(running.GetGauge().GetValue())
+			updated.RunningRequestsSize = int(running)
 		} else {
 			errs = multierr.Append(errs, err)
 		}
@@ -299,6 +299,38 @@ func (p *PodMetricsClientImpl) getMetric(metricFamilies map[string]*dto.MetricFa
 	}
 
 	return getLatestMetric(mf, &spec)
+}
+
+// sumMetric sums Gauge values across all series in the family whose labels
+// match spec.Labels. Used for pod-level totals that a single pod exposes as
+// one series per engine (e.g. vLLM data-parallel num_requests_running /
+// num_requests_waiting).
+// Keep in sync with framework/plugins/datalayer/extractor/metrics/spec.go:
+// (*Spec).sumMetrics.
+func (p *PodMetricsClientImpl) sumMetric(metricFamilies map[string]*dto.MetricFamily, spec MetricSpec) (float64, error) {
+	mf, ok := metricFamilies[spec.MetricName]
+	if !ok {
+		return 0, fmt.Errorf("metric family %q not found", spec.MetricName)
+	}
+
+	if len(mf.GetMetric()) == 0 {
+		return 0, fmt.Errorf("no metrics available for %q", spec.MetricName)
+	}
+
+	var sum float64
+	matched := false
+	for _, m := range mf.GetMetric() {
+		if labelsMatch(m.GetLabel(), spec.Labels) {
+			sum += m.GetGauge().GetValue()
+			matched = true
+		}
+	}
+
+	if !matched {
+		return 0, fmt.Errorf("no matching metric found for %q with labels %+v", spec.MetricName, spec.Labels)
+	}
+
+	return sum, nil
 }
 
 // getLabeledMetric gets the latest metric with matching labels.

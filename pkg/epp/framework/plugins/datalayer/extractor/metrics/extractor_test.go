@@ -74,16 +74,13 @@ func TestExtractorExtract(t *testing.T) {
 		t.Errorf("incorrect expected input type: %v", inputType)
 	}
 
-	ep := fwkdl.NewEndpoint(nil, nil)
-	if ep == nil {
-		t.Fatal("expected non-nil endpoint")
-	}
-
 	tests := []struct {
-		name    string
-		data    any
-		wantErr bool
-		updated bool // whether metrics are expected to change
+		name        string
+		data        any
+		wantErr     bool
+		updated     bool // whether metrics are expected to change
+		wantRunning *int // if non-nil, assert RunningRequestsSize equals this value
+		wantQueued  *int // if non-nil, assert WaitingQueueSize equals this value
 	}{
 		{
 			name:    "nil data",
@@ -182,6 +179,62 @@ func TestExtractorExtract(t *testing.T) {
 			wantErr: false,
 			updated: true,
 		},
+		{
+			name: "sums multiple running request series",
+			data: sourcemetrics.PrometheusMetricMap{
+				defaultTotalRunningRequestsMetric: &dto.MetricFamily{
+					Type: dto.MetricType_GAUGE.Enum(),
+					Metric: []*dto.Metric{
+						{
+							Label: []*dto.LabelPair{
+								{Name: proto.String("engine"), Value: proto.String("1")},
+							},
+							Gauge: &dto.Gauge{Value: ptr.To(2.0)},
+						},
+						{
+							Label: []*dto.LabelPair{
+								{Name: proto.String("engine"), Value: proto.String("2")},
+							},
+							Gauge: &dto.Gauge{Value: ptr.To(3.0)},
+						},
+						{
+							Label: []*dto.LabelPair{
+								{Name: proto.String("engine"), Value: proto.String("3")},
+							},
+							Gauge: &dto.Gauge{Value: ptr.To(4.0)},
+						},
+					},
+				},
+			},
+			wantErr:     true, // missing other configured metrics return an error
+			updated:     true,
+			wantRunning: ptr.To(9),
+		},
+		{
+			name: "sums multiple queued request series",
+			data: sourcemetrics.PrometheusMetricMap{
+				defaultTotalQueuedRequestsMetric: &dto.MetricFamily{
+					Type: dto.MetricType_GAUGE.Enum(),
+					Metric: []*dto.Metric{
+						{
+							Label: []*dto.LabelPair{
+								{Name: proto.String("engine"), Value: proto.String("1")},
+							},
+							Gauge: &dto.Gauge{Value: ptr.To(6.0)},
+						},
+						{
+							Label: []*dto.LabelPair{
+								{Name: proto.String("engine"), Value: proto.String("2")},
+							},
+							Gauge: &dto.Gauge{Value: ptr.To(7.0)},
+						},
+					},
+				},
+			},
+			wantErr:    true, // missing other configured metrics return an error
+			updated:    true,
+			wantQueued: ptr.To(13),
+		},
 	}
 
 	for _, tt := range tests {
@@ -192,6 +245,9 @@ func TestExtractorExtract(t *testing.T) {
 				}
 			}()
 
+			// Use a fresh endpoint per sub-test so RunningRequestsSize / WaitingQueueSize
+			// assertions are not polluted by previous cases.
+			ep := fwkdl.NewEndpoint(nil, nil)
 			before := ep.GetMetrics().Clone()
 			err := extractor.Extract(ctx, tt.data, ep)
 			after := ep.GetMetrics()
@@ -211,6 +267,13 @@ func TestExtractorExtract(t *testing.T) {
 				if diff := cmp.Diff(before, after); diff != "" {
 					t.Errorf("expected no metrics update, but got changes:\n%s", diff)
 				}
+			}
+
+			if tt.wantRunning != nil && after.RunningRequestsSize != *tt.wantRunning {
+				t.Errorf("RunningRequestsSize = %d, want %d", after.RunningRequestsSize, *tt.wantRunning)
+			}
+			if tt.wantQueued != nil && after.WaitingQueueSize != *tt.wantQueued {
+				t.Errorf("WaitingQueueSize = %d, want %d", after.WaitingQueueSize, *tt.wantQueued)
 			}
 		})
 	}

@@ -476,7 +476,7 @@ func TestPromToPodMetrics(t *testing.T) {
 			metricFamilies: map[string]*dto.MetricFamily{
 				"vllm_waiting": makeMetricFamily("vllm_waiting",
 					makeMetric(nil, 5.0, 1000),
-					makeMetric(nil, 7.0, 2000), // Newer
+					makeMetric(nil, 7.0, 2000),
 				),
 				"vllm_usage": makeMetricFamily("vllm_usage",
 					makeMetric(nil, 0.8, 2000),
@@ -493,11 +493,88 @@ func TestPromToPodMetrics(t *testing.T) {
 			},
 			existingMetrics: &MetricsState{},
 			expectedMetrics: &MetricsState{
-				WaitingQueueSize:    7,
+				WaitingQueueSize:    12, // sum of 5 + 7 across both series
 				KVCacheUsagePercent: 0.8,
 				ActiveModels:        map[string]int{"lora1": 0, "lora2": 0},
 				WaitingModels:       map[string]int{"lora3": 0},
 				MaxActiveModels:     3,
+			},
+		},
+		{
+			name: "sums multiple running request series",
+			metricFamilies: map[string]*dto.MetricFamily{
+				"vllm_running": makeMetricFamily("vllm_running",
+					makeMetric(map[string]string{"engine": "1"}, 2.0, 1000),
+					makeMetric(map[string]string{"engine": "2"}, 3.0, 1000),
+					makeMetric(map[string]string{"engine": "3"}, 4.0, 1000),
+				),
+			},
+			mapping: &MetricMapping{
+				TotalRunningRequests: &MetricSpec{MetricName: "vllm_running"},
+			},
+			existingMetrics: &MetricsState{ActiveModels: map[string]int{}, WaitingModels: map[string]int{}},
+			expectedMetrics: &MetricsState{
+				ActiveModels:        map[string]int{},
+				WaitingModels:       map[string]int{},
+				RunningRequestsSize: 9,
+			},
+		},
+		{
+			name: "keeps single running request series value",
+			metricFamilies: map[string]*dto.MetricFamily{
+				"vllm_running": makeMetricFamily("vllm_running",
+					makeMetric(map[string]string{"engine": "0"}, 5.0, 1000),
+				),
+			},
+			mapping: &MetricMapping{
+				TotalRunningRequests: &MetricSpec{MetricName: "vllm_running"},
+			},
+			existingMetrics: &MetricsState{ActiveModels: map[string]int{}, WaitingModels: map[string]int{}},
+			expectedMetrics: &MetricsState{
+				ActiveModels:        map[string]int{},
+				WaitingModels:       map[string]int{},
+				RunningRequestsSize: 5,
+			},
+		},
+		{
+			// Guards the documented contract: sumMetric sums *every* matching
+			// series, including duplicates with identical label sets. A single
+			// Prometheus scrape typically emits one value per series, but this
+			// test locks in behavior so callers don't silently double-count if
+			// that assumption ever changes.
+			name: "sums repeated series with identical labels",
+			metricFamilies: map[string]*dto.MetricFamily{
+				"vllm_running": makeMetricFamily("vllm_running",
+					makeMetric(map[string]string{"engine": "1"}, 2.0, 1000),
+					makeMetric(map[string]string{"engine": "1"}, 3.0, 2000),
+				),
+			},
+			mapping: &MetricMapping{
+				TotalRunningRequests: &MetricSpec{MetricName: "vllm_running"},
+			},
+			existingMetrics: &MetricsState{ActiveModels: map[string]int{}, WaitingModels: map[string]int{}},
+			expectedMetrics: &MetricsState{
+				ActiveModels:        map[string]int{},
+				WaitingModels:       map[string]int{},
+				RunningRequestsSize: 5,
+			},
+		},
+		{
+			name: "sums multiple queued request series",
+			metricFamilies: map[string]*dto.MetricFamily{
+				"vllm_waiting": makeMetricFamily("vllm_waiting",
+					makeMetric(map[string]string{"engine": "1"}, 6.0, 1000),
+					makeMetric(map[string]string{"engine": "2"}, 7.0, 1000),
+				),
+			},
+			mapping: &MetricMapping{
+				TotalQueuedRequests: &MetricSpec{MetricName: "vllm_waiting"},
+			},
+			existingMetrics: &MetricsState{ActiveModels: map[string]int{}, WaitingModels: map[string]int{}},
+			expectedMetrics: &MetricsState{
+				ActiveModels:     map[string]int{},
+				WaitingModels:    map[string]int{},
+				WaitingQueueSize: 13,
 			},
 		},
 		{
