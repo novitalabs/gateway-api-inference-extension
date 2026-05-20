@@ -32,6 +32,7 @@ func TestMetricsClone(t *testing.T) {
 		RunningRequestsSize:     3,
 		WaitingQueueSize:        7,
 		KVCacheUsagePercent:     42.5,
+		RankKVCacheUsagePercent: map[string]float64{"engine=0": 0.25},
 		KvCacheMaxTokenCapacity: 2048,
 		UpdateTime:              time.Now(),
 	}
@@ -46,6 +47,8 @@ func TestMetricsClone(t *testing.T) {
 	assert.Equal(t, 1, m.ActiveModels["modelA"], "mutating clone should not affect original")
 	clone.WaitingModels["modelB"] = 99
 	assert.Equal(t, 2, m.WaitingModels["modelB"], "mutating clone should not affect original")
+	clone.RankKVCacheUsagePercent["engine=0"] = 0.99
+	assert.Equal(t, 0.25, m.RankKVCacheUsagePercent["engine=0"], "mutating clone should not affect original")
 }
 
 func TestMetricsCloneOfNil(t *testing.T) {

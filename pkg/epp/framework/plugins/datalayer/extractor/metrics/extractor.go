@@ -37,13 +37,14 @@ import (
 const (
 
 	// --- Internal Keys (for Legacy/Gauge Usage) ---
-	KVCacheUsagePercentKey = "KVCacheUsagePercent"
-	WaitingQueueSizeKey    = "WaitingQueueSize"
-	RunningRequestsSizeKey = "RunningRequestsSize"
-	MaxActiveModelsKey     = "MaxActiveModels"
-	ActiveModelsKey        = "ActiveModels"
-	WaitingModelsKey       = "WaitingModels"
-	UpdateTimeKey          = "UpdateTime"
+	KVCacheUsagePercentKey     = "KVCacheUsagePercent"
+	RankKVCacheUsagePercentKey = "RankKVCacheUsagePercent"
+	WaitingQueueSizeKey        = "WaitingQueueSize"
+	RunningRequestsSizeKey     = "RunningRequestsSize"
+	MaxActiveModelsKey         = "MaxActiveModels"
+	ActiveModelsKey            = "ActiveModels"
+	WaitingModelsKey           = "WaitingModels"
+	UpdateTimeKey              = "UpdateTime"
 
 	// LoRA metrics based on MSP
 	LoraInfoRunningAdaptersMetricName = "running_lora_adapters"
@@ -130,10 +131,21 @@ func (ext *Extractor) Extract(ctx context.Context, data any, ep fwkdl.Endpoint) 
 	}
 
 	if spec := mapping.KVCacheUtilization; spec != nil { // extract KV cache usage
-		if metric, err := spec.getLatestMetric(families); err != nil {
+		if metrics, err := spec.getMatchingMetrics(families); err != nil {
 			errs = append(errs, err)
 		} else {
-			clone.KVCacheUsagePercent = extractValue(metric)
+			clone.RankKVCacheUsagePercent = make(map[string]float64, len(metrics))
+			for _, metric := range metrics {
+				if seriesKey := spec.metricSeriesKey(metric); seriesKey != "" {
+					clone.RankKVCacheUsagePercent[seriesKey] = extractValue(metric)
+				}
+			}
+			if len(clone.RankKVCacheUsagePercent) == 0 {
+				clone.RankKVCacheUsagePercent = nil
+			}
+			if metric, err := spec.getLatestMetric(families); err == nil {
+				clone.KVCacheUsagePercent = extractValue(metric)
+			}
 			updated = true
 		}
 	}

@@ -32,6 +32,7 @@ type Metrics struct {
 	RunningRequestsSize     int
 	WaitingQueueSize        int
 	KVCacheUsagePercent     float64
+	RankKVCacheUsagePercent map[string]float64
 	KvCacheMaxTokenCapacity int
 	CacheBlockSize          int
 	// Number of GPU blocks in the model server for KV Cache.
@@ -67,6 +68,11 @@ func (m *Metrics) Clone() *Metrics {
 	maps.Copy(activeModels, m.ActiveModels)
 	waitingModels := make(map[string]int, len(m.WaitingModels))
 	maps.Copy(waitingModels, m.WaitingModels)
+	var rankKVCacheUsagePercent map[string]float64
+	if m.RankKVCacheUsagePercent != nil {
+		rankKVCacheUsagePercent = make(map[string]float64, len(m.RankKVCacheUsagePercent))
+		maps.Copy(rankKVCacheUsagePercent, m.RankKVCacheUsagePercent)
+	}
 	return &Metrics{
 		ActiveModels:            activeModels,
 		WaitingModels:           waitingModels,
@@ -74,6 +80,7 @@ func (m *Metrics) Clone() *Metrics {
 		RunningRequestsSize:     m.RunningRequestsSize,
 		WaitingQueueSize:        m.WaitingQueueSize,
 		KVCacheUsagePercent:     m.KVCacheUsagePercent,
+		RankKVCacheUsagePercent: rankKVCacheUsagePercent,
 		KvCacheMaxTokenCapacity: m.KvCacheMaxTokenCapacity,
 		CacheBlockSize:          m.CacheBlockSize,
 		CacheNumBlocks:          m.CacheNumBlocks,

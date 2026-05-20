@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -172,6 +173,8 @@ func (p *PodMetricsClientImpl) promToPodMetrics(
 		usage, err := p.getMetric(metricFamilies, *p.MetricMapping.KVCacheUtilization)
 		if err == nil {
 			updated.KVCacheUsagePercent = usage.GetGauge().GetValue()
+			updated.RankKVCacheUsagePercent = p.getMatchingMetricValues(
+				metricFamilies, *p.MetricMapping.KVCacheUtilization)
 		} else {
 			errs = multierr.Append(errs, err)
 		}
@@ -299,6 +302,42 @@ func (p *PodMetricsClientImpl) getMetric(metricFamilies map[string]*dto.MetricFa
 	}
 
 	return getLatestMetric(mf, &spec)
+}
+
+func (p *PodMetricsClientImpl) getMatchingMetricValues(
+	metricFamilies map[string]*dto.MetricFamily,
+	spec MetricSpec,
+) map[string]float64 {
+	mf, ok := metricFamilies[spec.MetricName]
+	if !ok || len(mf.GetMetric()) == 0 {
+		return nil
+	}
+
+	values := make(map[string]float64)
+	for _, m := range mf.GetMetric() {
+		if labelsMatch(m.GetLabel(), spec.Labels) {
+			if seriesKey := metricSeriesKey(m, spec.Labels); seriesKey != "" {
+				values[seriesKey] = m.GetGauge().GetValue()
+			}
+		}
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	return values
+}
+
+func metricSeriesKey(metric *dto.Metric, specLabels map[string]string) string {
+	parts := make([]string, 0, len(metric.GetLabel()))
+	for _, label := range metric.GetLabel() {
+		name := label.GetName()
+		if _, ok := specLabels[name]; ok {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", name, label.GetValue()))
+	}
+	slices.Sort(parts)
+	return strings.Join(parts, ",")
 }
 
 // sumMetric sums Gauge values across all series in the family whose labels

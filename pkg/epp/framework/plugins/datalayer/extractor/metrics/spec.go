@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	dto "github.com/prometheus/client_model/go"
@@ -123,6 +124,40 @@ func (spec *Spec) getLatestMetric(families sourcemetrics.PrometheusMetricMap) (*
 	}
 
 	return latest, nil
+}
+
+// getMatchingMetrics retrieves all metrics whose labels match the spec.
+func (spec *Spec) getMatchingMetrics(families sourcemetrics.PrometheusMetricMap) ([]*dto.Metric, error) {
+	family, err := extractFamily(spec, families)
+	if err != nil {
+		return nil, err
+	}
+
+	matches := make([]*dto.Metric, 0, len(family.GetMetric()))
+	for _, metric := range family.GetMetric() {
+		if spec.labelsMatch(metric.GetLabel()) {
+			matches = append(matches, metric)
+		}
+	}
+
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("no matching metric found for %q with labels %v", spec.Name, spec.Labels)
+	}
+
+	return matches, nil
+}
+
+func (spec *Spec) metricSeriesKey(metric *dto.Metric) string {
+	parts := make([]string, 0, len(metric.GetLabel()))
+	for _, label := range metric.GetLabel() {
+		name := label.GetName()
+		if _, ok := spec.Labels[name]; ok {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", name, label.GetValue()))
+	}
+	slices.Sort(parts)
+	return strings.Join(parts, ",")
 }
 
 // sumMetrics returns the sum of all series in the family whose labels match spec.Labels.
